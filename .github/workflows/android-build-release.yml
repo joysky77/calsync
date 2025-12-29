@@ -8,9 +8,9 @@ on:
         required: false
         default: ''
         type: string
-  push:
-    tags:
-      - 'v*.*.*'
+  # push:
+  #   tags:
+  #     - 'v*.*.*'
 
 
 env:
@@ -106,7 +106,7 @@ jobs:
         run: |
           set -euo pipefail
           # Set JVM max heap via GRADLE_OPTS to avoid shell/PowerShell parsing issues with -Porg.gradle.jvmargs
-          GRADLE_OPTS="-Xmx3g"
+          export GRADLE_OPTS="-Xmx3g"
 
           # If keystore secret is present but file missing, decode it now (defensive)
           if [ -n "${RELEASE_KEYSTORE_BASE64:-}" ] && [ ! -f "$PWD/app/release/release-keystore.jks" ]; then
@@ -117,31 +117,42 @@ jobs:
 
           # Build with signing properties if keystore exists and passwords provided
           STORE_FILE="$PWD/app/release/release-keystore.jks"
+          SIGNING_PROPS=""
           if [ -f "$STORE_FILE" ] && [ -n "${RELEASE_KEYSTORE_KEY:-}" ] && [ -n "${RELEASE_KEYSTORE_SUBKEY:-}" ]; then
-            echo "Keystore found — building signed release APK"
-            ./gradlew assembleRelease -Pandroid.injected.signing.store.file="$STORE_FILE" -Pandroid.injected.signing.store.password="${RELEASE_KEYSTORE_KEY}" -Pandroid.injected.signing.key.password="${RELEASE_KEYSTORE_SUBKEY}" -Pandroid.injected.signing.key.alias=release
-          else
-            echo "No keystore/passwords provided — building release APK without injected signing properties"
-            ./gradlew assembleRelease
+            echo "Keystore found — preparing signed release properties"
+            SIGNING_PROPS="-Pandroid.injected.signing.store.file=$STORE_FILE -Pandroid.injected.signing.store.password=${RELEASE_KEYSTORE_KEY} -Pandroid.injected.signing.key.password=${RELEASE_KEYSTORE_SUBKEY} -Pandroid.injected.signing.key.alias=release"
           fi
+
+          mkdir -p saved_apks
+
+          echo "Building FOSS flavor one by one..."
+          # Build each ABI separately to avoid manifest interference as requested by F-Droid
+          for abi in arm64-v8a armeabi-v7a x86 x86_64 riscv64; do
+            echo "Building FOSS $abi..."
+            ./gradlew clean assembleFossRelease -PabiFilter=$abi $SIGNING_PROPS
+            find app/build/outputs/apk/foss/release/ -name "*.apk" -exec cp {} saved_apks/ \;
+          done
+          
+          echo "Building FOSS Universal..."
+          ./gradlew clean assembleFossRelease $SIGNING_PROPS
+          find app/build/outputs/apk/foss/release/ -name "*universal.apk" -exec cp {} saved_apks/ \;
+
+          echo "Building Full flavor..."
+          ./gradlew clean assembleFullRelease $SIGNING_PROPS
+          find app/build/outputs/apk/full/release/ -name "*.apk" -exec cp {} saved_apks/ \;
 
       - name: Prepare artifacts
         run: |
           set -euo pipefail
           mkdir -p release_artifacts
           
-          # 搜集所有生成的 Release APK (包括不同架构和 universal 包)
-          # 路径示例: app/build/outputs/apk/foss/release/calsync-0.1.1-foss-universal.apk
-          find app/build/outputs/apk/*/release/ -name "*.apk" -exec cp {} release_artifacts/ \;
-          
-          # 如果也想包含 Debug APK，可以取消下面这行的注释
-          # find app/build/outputs/apk/*/debug/ -name "*.apk" -exec cp {} release_artifacts/ \;
+          # Collect all saved APKs
+          cp saved_apks/*.apk release_artifacts/
           
           # 检查是否搜集到了文件
           COUNT=$(ls release_artifacts/*.apk 2>/dev/null | wc -l || echo 0)
           if [ "$COUNT" -eq 0 ]; then
-            echo "No APKs found. Listing outputs for debugging:"
-            ls -R app/build/outputs/apk/ || true
+            echo "No APKs found."
             exit 1
           fi
           echo "Found $COUNT APKs."
