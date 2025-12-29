@@ -18,14 +18,22 @@ android {
         applicationId = "top.stevezmt.calsync"
         minSdk = 23
         targetSdk = 36
-        versionCode = 10
-        versionName = "0.1.4"
+        versionCode = 11
+        versionName = "0.1.5"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
         externalNativeBuild {
             cmake {
                 cppFlags += "-std=c++17"
+                val requestedAbis = project.findProperty("abiFilter")?.toString()?.split(",")
+                if (requestedAbis != null) {
+                    abiFilters.addAll(requestedAbis)
+                } else {
+                    // Include riscv64 in the build (will be in universal APK) 
+                    // but not necessarily in the splits include list below
+                    abiFilters.addAll(listOf("arm64-v8a", "x86_64", "armeabi-v7a", "x86", "riscv64"))
+                }
             }
         }
     }
@@ -53,9 +61,10 @@ android {
             if (requestedAbis != null) {
                 include(*requestedAbis.toTypedArray())
             } else {
-                include("arm64-v8a", "x86_64", "armeabi-v7a", "x86")
+                // Include major architectures and riscv64
+                include("arm64-v8a", "x86_64", "armeabi-v7a", "x86", "riscv64")
             }
-            isUniversalApk = false
+            isUniversalApk = true
         }
     }
 
@@ -86,6 +95,10 @@ android {
 
     applicationVariants.all {
         val baseVersionCode = versionCode
+        // Fix for F-Droid: Ensure BuildConfig.VERSION_CODE is consistent across ABI splits
+        // by forcing it to the base version code.
+        buildConfigField("int", "VERSION_CODE", "${baseVersionCode}")
+
         outputs.all {
             val output = this as com.android.build.gradle.internal.api.ApkVariantOutputImpl
             val abi = output.getFilter(com.android.build.OutputFile.ABI)
@@ -97,6 +110,7 @@ android {
                 "arm64-v8a" -> 2
                 "x86" -> 3
                 "x86_64" -> 4
+                "riscv64" -> 5
                 else -> 0 // universal or others
             }
 

@@ -44,6 +44,12 @@ if(ANDROID)
         set(GGML_NEON ON CACHE BOOL "ggml: use NEON" FORCE)
         message(STATUS "Enabling NEON for arm64-v8a")
     endif()
+
+    # Disable RVV on RISC-V to avoid toolchain issues with inline assembly
+    if(ANDROID_ABI STREQUAL "riscv64")
+        set(GGML_RVV OFF CACHE BOOL "ggml: use RVV" FORCE)
+        message(STATUS "Disabling RVV for riscv64")
+    endif()
 endif()
 
 # Add llama.cpp as subdirectory

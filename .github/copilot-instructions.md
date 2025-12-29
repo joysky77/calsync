@@ -1,63 +1,67 @@
 # Copilot instructions for calsync
 
-This repo is an Android (Kotlin) app that listens to system notifications, parses Chinese time expressions, and writes calendar events. Keep responses concise and follow the codebase’s patterns below.
+Concise guide for AI agents: focus on the notification → parse → calendar flow and follow project conventions (privacy, tests, and background dispatching).
 
-## Architecture and data flow
-- Entry points
-  - `NotificationMonitorService` (NotificationListenerService): receives notifications, extracts title/content, and invokes `NotificationProcessor.process(...)` on a background dispatcher.
-  - `KeepAliveService` (foreground service, type specialUse): optional keep-alive, shows ongoing notification; controlled by `SettingsStore.isKeepAliveEnabled`.
-  - `CalSyncApp` (Application): window inset handling, crash capture + deferred broadcast via `CrashNotifierReceiver`.
-- Processing pipeline (single source of truth)
-  1) Keyword filter from `SettingsStore.getKeywords()` and optional app filter from `SettingsStore.getSelectedSourceAppPkgs()`.
-  2) Sentence extraction with `DateTimeParser.extractAllSentencesContainingDate(...)`.
-  3) Date-time parsing: prefer Rule-based parser with context and baseMillis; fallback to `TimeNLPAdapter` iff `SettingsStore.isTimeNLPEnabled`.
-  4) Event insertion via `CalendarHelper.insertEvent(...)`.
-  5) Confirmation via `NotificationUtils.sendEventCreated(...)` and in-app broadcast `NotificationUtils.ACTION_EVENT_CREATED`.
-- Parsing contracts
-  - Public: `DateTimeParser.parseDateTime(sentence)` and `DateTimeParser.parseDateTime(context, sentence, baseMillis)` returning `ParseResult(startMillis, endMillis?, title?, location?)`.
-  - `TimeNLPAdapter.parse(text, baseMillis?) -> List<ParseSlot>`; includes small LRU cache and merges date-only/time-only units and ranges like "周五3点到5点".
-  - Relative time support like “3天后”“1个半小时后”“还剩X天/小时/分钟/秒” is handled in `DateTimeParser`.
+## Big picture
+- Flow: NotificationListener (`NotificationMonitorService`) → `NotificationProcessor` → sentence extraction (`DateTimeParser.extractAllSentencesContainingDate`) → parsing (`DateTimeParser` rule set, fallback `TimeNLPAdapter` when enabled) → calendar write (`CalendarHelper.insertEvent`) → user confirmation (`NotificationUtils.sendEventCreated`).
+- Entry points you’ll touch most: `NotificationMonitorService`, `NotificationProcessor`, `DateTimeParser`, `TimeNLPAdapter`, `CalendarHelper`, `NotificationUtils`.
 
-## Project-specific conventions
-- Language/locale: Simplified Chinese-first UX; tests freeze a base time when checking parsing.
-- Prefer-future behavior is tri-state via `SettingsStore.getPreferFutureOption()`:
-  - 0=Auto (heuristics), 1=Prefer future, 2=Disable (don’t roll forward).
-- Default times: missing explicit time defaults to 09:00; evening/pm tokens map to 19:00 where appropriate.
-- Title/location extraction uses `JiebaWrapper` and heuristics; avoid over-engineering titles—keep short and meaningful.
-- Notification channels consolidated: confirmations use `NotificationUtils.CHANNEL_CONFIRM`; errors use `CHANNEL_ERROR`.
-- All confirmation notifications include a delete-action handled by `EventActionReceiver` and a deep link to the created event.
-- Do not log or toast full notification contents in production paths; rely on `NotificationCache` for brief summaries.
+## Key conventions & behaviors
+- Parsing API: `DateTimeParser.parseDateTime(sentence)` and `DateTimeParser.parseDateTime(context, sentence, baseMillis)` → returns `ParseResult(startMillis, endMillis?, title?, location?)`.
+- Prefer-future: `SettingsStore.getPreferFutureOption()` (0=auto, 1=prefer future, 2=disable).
+- Defaults: missing time → 09:00; evening tokens map to 19:00; relative expressions ("3天后", "还剩X小时") supported.
+- Title/location: lightweight extraction via `JiebaWrapper`; keep titles short and heuristic-driven.
+- Privacy: app has NO INTERNET permission — do not add network code or log full notification texts in production.
 
-## Key files to learn by example
-- Parsing: `DateTimeParser.kt`, `TimeNLPAdapter.kt`, `timenlp/internal/*` (regex-based normalizer), `JiebaWrapper.kt`.
-- Notification flow: `NotificationMonitorService.kt`, `NotificationHelper.kt`, `NotificationUtils.kt`, `NotificationCache.kt`.
-- Calendar I/O: `CalendarHelper.kt`, `EventActionReceiver.kt`.
-- Settings: `SettingsStore.kt` (keywords, selected calendars, app allowlist, prefer-future, TimeNLP toggle, relative words).
+## Tests & developer workflow
+- Environment: JDK 21, AGP 8.13, Kotlin 2.0.21; run via Gradle wrapper.
+- Common commands:
+  - ./gradlew assembleDebug
+  - ./gradlew assembleRelease
+  - ./gradlew :app:testDebugUnitTest --no-daemon --info
+  - ./gradlew connectedDebugAndroidTest
+  - If OOM: set `GRADLE_OPTS=-Xmx3g`.
+  - Lint: `./gradlew :app:lintDebug` and view `app/build/reports/lint-results-debug.html`.
+  for FOSS flavor:
+  - ./gradlew assembleFossDebug
+  - ./gradlew :app:testFossDebugUnitTest --no-daemon --info
+  
+- Testing pattern: parser rules require unit tests with a frozen base time (see `app/src/test/*/DateTimeParserTest*.kt`). Use `DateTimeParser.parseDateTime(..., baseMillis)` or test helpers like `parseWithBase`.
+- To run a single test class: `./gradlew :app:testDebugUnitTest --tests "top.stevezmt.calsync.DateTimeParserTest*"`.
 
-## Build, run, test
-- JDK 21, AGP 8.13, Kotlin 2.0.21; module `:app` targets minSdk 23, targetSdk 36; Kotlin/JVM target 11.
-- Local build examples (PowerShell on Windows):
-  - Debug APK: `./gradlew assembleDebug`
-  - Release APK: `./gradlew assembleRelease`
-  - Unit tests: `./gradlew :app:testDebugUnitTest --no-daemon --info`
-  - If OOM, set `GRADLE_OPTS=-Xmx3g` for the process.
-- CI: see `.github/workflows/android-build-release.yml`; it builds debug/release and attaches APKs to a GitHub Release.
+## Safe change patterns for agents
+- Parser changes: extend `DateTimeParser` first, add targeted unit tests under `app/src/test/java/top/stevezmt/calsync/`, assert start/end/timezone behavior with a fixed base. Only use `TimeNLPAdapter` as fallback and guard with `SettingsStore.isTimeNLPEnabled()`.
+- Notification flow: do heavy work on background dispatcher; never block `NotificationListenerService` callbacks. Use `NotificationUtils.ensureChannels` and `safeNotify` for notifications.
+- Calendar writes: prefer `SettingsStore.getSelectedCalendarId()` if set; otherwise pick first visible calendar and always set timezone when inserting.
+- Confirmation UI: confirmation notifications include delete-action (`EventActionReceiver`) and deep links to created events — update both when changing behavior.
 
-## Safe changes and patterns for agents
-- When adding new parse rules:
-  - Extend `DateTimeParser` first; add corresponding unit tests in `app/src/test/java/top/stevezmt/calsync/` with frozen base calendars (see `DateTimeParserTest.kt`).
-  - Only fall back to `TimeNLPAdapter` after rule-based attempts.
-- When touching notification flow:
-  - Keep work on background dispatcher; don’t block `NotificationListenerService` callbacks.
-  - Update channels via `NotificationUtils.ensureChannels`; use `safeNotify` to handle T+ permission.
-- Calendar writes:
-  - Use `SettingsStore.getSelectedCalendarId` when set; otherwise fallback to first visible calendar; always set timezone.
-- Respect privacy:
-  - App has no INTERNET permission; avoid adding network code. Keep logs minimal and avoid leaking sensitive notification text.
+## Integration & third-party
+- `timenlp/internal/*`: regex-based normalizer; used only via `TimeNLPAdapter`.
+
+- ML Kit (full flavor)
+  - Implementation: `app/src/full/java/top/stevezmt/calsync/MLKitStrategy.kt` (FOSS stub: `app/src/foss/java/.../MLKitStrategy.kt` returns null).
+  - Dependency: added as `fullImplementation(libs.mlkit.entity.extraction)` (see `gradle/libs.versions.toml` and `app/build.gradle.kts`).
+  - Behavior: uses Google ML Kit Entity Extraction (`EntityExtraction`) and `DateTimeEntity`; calls `extractor.downloadModelIfNeeded()` (via `Tasks.await`) which may trigger a model download via Google Play Services on first run.
+  - Testing & agent guidance:
+    - **Do not** invoke real ML Kit in unit tests; use the FOSS flavor or mock `EntityExtraction` / `EntityExtractor` in instrumentation tests.
+    - Guard model downloads with try/catch and avoid blocking the UI thread — ML Kit calls should run on background dispatcher as parser strategies are run there.
+    - If you change ML Kit usage, update settings/UI hints where we check for `com.google.android.gms` presence (see `SettingsActivity.kt`).
+
+- `third_party/llama.cpp` (native module)
+  - Location: `third_party/llama.cpp/` — this is a full native C/C++ project with its own CI and `.github/copilot-instructions.md` (read that file before changing native code).
+  - Android integration: `app/src/main/cpp/CMakeLists.txt` adds llama.cpp as a subdirectory and builds a `llama_jni` shared library; NDK version is pinned in `app/build.gradle.kts` (`ndkVersion = "29.0.13599879"`).
+  - Build notes: changes to `llama.cpp` may require CMake/NDK updates and are often platform-specific; prefer minimal, well-tested changes. Use CPU-only defaults for Android builds; Vulkan/CUDA/Metal require extra toolchains and hardware.
+  - Testing & agent guidance:
+    - Run native builds with CMake and the Android NDK; ensure `LLAMA_DIR` exists (CMake will fail otherwise).
+    - For changes inside `third_party/llama.cpp`, follow its contribution guide and run its CI locally (`ci/run.sh`) or the specific CMake build commands documented in its `.github` docs.
+    - Avoid modifying vendored code unless necessary — prefer JNI glue (`app/src/main/cpp/llama_jni.cpp`) for app-specific logic.
+
+
 
 ## Quick examples
-- Extract sentences: `DateTimeParser.extractAllSentencesContainingDate(ctx, title + "。" + content)`.
-- Parse with fixed base: `DateTimeParser.parseDateTime(ctx, sentence, baseMillis)`; expected to honor prefer-future option.
-- Insert event: `CalendarHelper.insertEvent(ctx, title, desc, start, end, location)` then `NotificationUtils.sendEventCreated(...)`.
+- Extract: `DateTimeParser.extractAllSentencesContainingDate(ctx, title + "。" + content)`
+- Parse with base: `DateTimeParser.parseDateTime(ctx, sentence, baseMillis)`
+- Insert & notify: `CalendarHelper.insertEvent(ctx, title, desc, start, end, location)` → `NotificationUtils.sendEventCreated(...)`
 
-If any parts of these instructions feel incomplete (e.g., missing timenlp/internal details or ROM-specific quirks you rely on), tell me what to clarify and I’ll amend this file.
+---
+If anything here is unclear or need more examples (tests, failing-case patterns, or ROM quirks), create a new task to investigate and document it.
