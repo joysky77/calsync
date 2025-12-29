@@ -5,17 +5,25 @@ project(calsync_llama_jni C CXX)
 # CMAKE_SOURCE_DIR = app/src/main/cpp
 set(LLAMA_DIR_RELATIVE "${CMAKE_SOURCE_DIR}/../../../../third_party/llama.cpp")
 get_filename_component(LLAMA_DIR ${LLAMA_DIR_RELATIVE} ABSOLUTE)
+get_filename_component(PROJECT_ROOT "${CMAKE_SOURCE_DIR}/../../../.." ABSOLUTE)
 
 # Enforce C++17 for the entire project
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
-set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fPIC -ffile-prefix-map=${LLAMA_DIR}=. -ffile-prefix-map=${CMAKE_BINARY_DIR}=.")
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fPIC -ffile-prefix-map=${LLAMA_DIR}=. -ffile-prefix-map=${CMAKE_BINARY_DIR}=.")
 
-# Reproducible build fixes
+# Reproducible build fixes: map all absolute paths to relative
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fPIC -ffile-prefix-map=${PROJECT_ROOT}=. -ffile-prefix-map=${LLAMA_DIR}=. -ffile-prefix-map=${CMAKE_BINARY_DIR}=.")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fPIC -ffile-prefix-map=${PROJECT_ROOT}=. -ffile-prefix-map=${LLAMA_DIR}=. -ffile-prefix-map=${CMAKE_BINARY_DIR}=.")
+
+add_compile_options("-ffile-prefix-map=${PROJECT_ROOT}=.")
 add_compile_options("-ffile-prefix-map=${LLAMA_DIR}=.")
 add_compile_options("-ffile-prefix-map=${CMAKE_BINARY_DIR}=.")
 add_link_options("LINKER:--build-id=none")
+
+# Force llama.cpp to use fixed build info for reproducibility
+set(GIT_EXECUTABLE "false" CACHE FILEPATH "Disable git for reproducible builds" FORCE)
+set(BUILD_NUMBER "0" CACHE STRING "Fixed build number" FORCE)
+set(BUILD_COMMIT "reproducible" CACHE STRING "Fixed commit hash" FORCE)
 
 if(NOT EXISTS ${LLAMA_DIR})
     message(FATAL_ERROR "llama.cpp not found at ${LLAMA_DIR}")

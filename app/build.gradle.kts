@@ -18,8 +18,8 @@ android {
         applicationId = "top.stevezmt.calsync"
         minSdk = 23
         targetSdk = 36
-        versionCode = 12
-        versionName = "0.1.6"
+        versionCode = 13
+        versionName = "0.1.7"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
@@ -64,7 +64,7 @@ android {
                 // Include major architectures and riscv64
                 include("arm64-v8a", "x86_64", "armeabi-v7a", "x86", "riscv64")
             }
-            isUniversalApk = true
+            isUniversalApk = false
         }
     }
 
