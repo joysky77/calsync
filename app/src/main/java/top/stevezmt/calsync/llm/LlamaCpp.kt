@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.Uri
 import android.util.Log
 import java.io.File
+import java.security.MessageDigest
 import java.util.concurrent.locks.ReentrantReadWriteLock
 import kotlin.concurrent.read
 import kotlin.concurrent.write
@@ -45,6 +46,7 @@ object LlamaCpp {
     // ===== State Management =====
     private data class ModelState(
         val handle: Long = 0,
+        val sourceUri: String = "",
         val modelPath: String = "",
         val nCtx: Int = 0,
         val nThreads: Int = 0
@@ -81,7 +83,12 @@ object LlamaCpp {
 
         // Fast path: check if we have a valid cached model
         stateLock.read {
-            if (currentState.isValid() && currentState.modelPath == modelUri) {
+            if (
+                currentState.isValid() &&
+                currentState.sourceUri == modelUri &&
+                currentState.nCtx == nCtx &&
+                currentState.nThreads == nThreads
+            ) {
                 Log.d(TAG, "getOrInitHandle: using cached handle=${currentState.handle}")
                 return currentState.handle
             }
@@ -99,7 +106,13 @@ object LlamaCpp {
 
         stateLock.write {
             // Double-check: another thread may have loaded while we were materializing
-            if (currentState.isValid() && currentState.modelPath == modelPath) {
+            if (
+                currentState.isValid() &&
+                currentState.sourceUri == modelUri &&
+                currentState.modelPath == modelPath &&
+                currentState.nCtx == nCtx &&
+                currentState.nThreads == nThreads
+            ) {
                 Log.d(TAG, "getOrInitHandle: another thread loaded first, reusing handle=${currentState.handle}")
                 return@write
             }
@@ -125,6 +138,7 @@ object LlamaCpp {
             Log.d(TAG, "getOrInitHandle: new model loaded handle=$handle")
             currentState = ModelState(
                 handle = handle,
+                sourceUri = modelUri,
                 modelPath = modelPath,
                 nCtx = nCtx,
                 nThreads = nThreads
@@ -197,6 +211,7 @@ object LlamaCpp {
         return stateLock.read {
             mapOf(
                 "handle" to currentState.handle,
+                "sourceUri" to currentState.sourceUri,
                 "modelPath" to currentState.modelPath,
                 "nCtx" to currentState.nCtx,
                 "nThreads" to currentState.nThreads,
@@ -243,7 +258,7 @@ object LlamaCpp {
                         Log.d(TAG, "materializeModelToFile: created cache dir")
                     }
 
-                    val modelFile = File(cacheDir, "model.gguf")
+                    val modelFile = File(cacheDir, "model-${stableUriHash(uriString)}.gguf")
 
                     // Cache hit
                     if (modelFile.exists() && modelFile.length() > 0) {
@@ -283,5 +298,9 @@ object LlamaCpp {
             null
         }
     }
-}
 
+    private fun stableUriHash(value: String): String {
+        val digest = MessageDigest.getInstance("SHA-256").digest(value.toByteArray(Charsets.UTF_8))
+        return digest.take(12).joinToString("") { "%02x".format(it.toInt() and 0xff) }
+    }
+}

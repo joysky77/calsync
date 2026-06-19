@@ -56,12 +56,12 @@ object NotificationProcessor {
 				notifier.onDebugLog("prefilter=true")
 			}
 
-			val sentences = if (engine == ParseEngine.AI_GGUF) {
+			val sentences = if (engine == ParseEngine.AI_GGUF || engine == ParseEngine.EXTERNAL_AI) {
 				listOf(fullText.trim()).filter { it.isNotEmpty() }
 			} else {
 				DateTimeParser.extractAllSentencesContainingDate(context, fullText)
 			}
-			if (sentences.isEmpty()) return ProcessResult(false, reason = if (engine == ParseEngine.AI_GGUF) "AI 模式下全文为空" else "未包含时间句子")
+			if (sentences.isEmpty()) return ProcessResult(false, reason = if (engine == ParseEngine.AI_GGUF || engine == ParseEngine.EXTERNAL_AI) "AI 模式下全文为空" else "未包含时间句子")
 			notifier.onDebugLog("sentences=${sentences.size}")
 			val (globalTitle, globalLocation) = DateTimeParser.extractTitleAndLocationFromText(context, fullText)
 
@@ -72,7 +72,17 @@ object NotificationProcessor {
 				try {
 					notifier.onDebugLog("sentence='${sentence.take(120)}'")
 					val parsed = DateTimeParser.parseDateTime(context, sentence, baseMillis)
-					if (parsed == null) { lastReason = "解析失败($sentence)"; continue }
+					if (parsed == null) {
+						if (engine == ParseEngine.EXTERNAL_AI) {
+							val status = DateTimeParser.consumeExternalAiStatus()
+							handleExternalAiNoEvent(context, status, notifier)
+							lastReason = status?.message ?: "外部 AI 未生成日程"
+						} else {
+							lastReason = "解析失败($sentence)"
+						}
+						continue
+					}
+					val externalAiStatus = if (engine == ParseEngine.EXTERNAL_AI) DateTimeParser.consumeExternalAiStatus() else null
 					notifier.onDebugLog("parsed start=${parsed.startMillis} end=${parsed.endMillis} title=${parsed.title} loc=${parsed.location}")
 
 					val chosenLocation = parsed.location ?: globalLocation
@@ -82,13 +92,20 @@ object NotificationProcessor {
 						val trimmed = sentence.trim().replace(Regex("\\n+"), " ").replace(Regex("\\s+"), " ")
 						if (trimmed.length > 60) trimmed.take(60) else trimmed
 					}
-					val eventTitle = preferredTitle ?: parsedTitle ?: fallbackTitle
+					val eventTitle = if (engine == ParseEngine.AI_GGUF || engine == ParseEngine.EXTERNAL_AI) {
+						parsedTitle ?: preferredTitle ?: fallbackTitle
+					} else {
+						preferredTitle ?: parsedTitle ?: fallbackTitle
+					}
 					var desc = "来源: ${if (input.isTest) "测试" else input.packageName}\n原文:\n${input.title}\n${input.content}"
 					if (!chosenLocation.isNullOrBlank()) desc += "\n地点: ${chosenLocation}"
+					if (engine == ParseEngine.EXTERNAL_AI) desc += "\n解析来源: 外部 AI"
 
 					val eventId = CalendarHelper.insertEvent(context, eventTitle, desc, parsed.startMillis, parsed.endMillis, chosenLocation)
 					if (eventId != null) {
-						NotificationUtils.sendEventCreated(context, eventId, parsed.startMillis, eventTitle, chosenLocation)
+						val sourceLabel = if (engine == ParseEngine.EXTERNAL_AI) "外部 AI" else null
+						NotificationUtils.sendEventCreated(context, eventId, parsed.startMillis, eventTitle, chosenLocation, sourceLabel)
+						if (externalAiStatus != null) notifier.onDebugLog(externalAiStatus.message)
 						notifier.onEventCreated(eventId, eventTitle, parsed.startMillis, parsed.endMillis ?: (parsed.startMillis + 60*60*1000L), chosenLocation)
 						// also broadcast baseMillis so UI can display what 'now' was when parsing
 						try {
@@ -118,6 +135,27 @@ object NotificationProcessor {
 			try { NotificationUtils.sendError(context, Exception(t)) } catch (_: Throwable) {}
 			notifier.onError("处理异常: ${t.message}")
 			ProcessResult(false, reason = t.message)
+		}
+	}
+
+	private fun handleExternalAiNoEvent(context: Context, status: DateTimeParser.ExternalAiStatus?, notifier: ConfirmationNotifier) {
+		when (status?.outcome) {
+			DateTimeParser.ExternalAiOutcome.SKIPPED_BY_AI -> {
+				NotificationUtils.sendAiSkipped(context, status.message)
+				notifier.onDebugLog(status.message)
+			}
+			DateTimeParser.ExternalAiOutcome.ERROR -> {
+				NotificationUtils.sendAiFailure(context, status.message)
+				notifier.onDebugLog(status.message)
+			}
+			DateTimeParser.ExternalAiOutcome.CREATED -> {
+				notifier.onDebugLog(status.message)
+			}
+			null -> {
+				val message = "外部 AI 未返回可创建的日程"
+				NotificationUtils.sendAiSkipped(context, message)
+				notifier.onDebugLog(message)
+			}
 		}
 	}
 

@@ -1,152 +1,140 @@
-
-<div align="center">
-
-![](app/src/main/res/mipmap-xxxhdpi/ic_launcher_round.webp)
-
 # 通知日历同步
-通过监听来自工作和社交APP的通知，将事件登记到您的日历中。
 
-[![GitHub repo size](https://img.shields.io/github/repo-size/stevezmtstudios/calsync?style=flat-square)](#)
-[![GitHub release (release name instead of tag name)](https://img.shields.io/github/v/release/stevezmtstudios/calsync?style=flat-square)](https://github.com/stevezmtstudios/calsync/releases)
-[![GitHub issues](https://img.shields.io/github/issues/stevezmtstudios/calsync?style=flat-square)](#)
+![应用图标](app/src/main/res/mipmap-xxxhdpi/ic_launcher_round.webp)
+
+通过监听来自工作、即时通讯或其他应用的通知内容，自动识别会议、活动、截止时间等日程信息，并写入 Android 系统日历。
+
+[![GitHub repo size](https://img.shields.io/github/repo-size/stevezmtstudios/calsync?style=flat-square)](https://github.com/stevezmtstudios/calsync)
+[![GitHub release](https://img.shields.io/github/v/release/stevezmtstudios/calsync?style=flat-square)](https://github.com/stevezmtstudios/calsync/releases)
+[![GitHub issues](https://img.shields.io/github/issues/stevezmtstudios/calsync?style=flat-square)](https://github.com/stevezmtstudios/calsync/issues)
 [![GitHub license](https://img.shields.io/github/license/stevezmtstudios/calsync?style=flat-square)](LICENSE)
 
-</div>
+> [!WARNING]
+> 本项目包含经过人工审查的 AI 生成内容和人工编写修正内容。  
+> 当前版本主要面向简体中文通知文本。
 
-> [!WARNING] 
-> 此项目包含部分**AI生成**（已经过人类审查）和人类编写修正的内容。  
-> 此项目目前仅支持**简体中文 Simplified Chinese**。
+## 软件简介
 
-本应用提供两个版本：
-- **FOSS 版本**：完全开源，不含闭源 SDK，**无网络权限**，提供最极致的隐私保障。
-- **Full 版本**：包含 Google ML Kit 增强解析引擎，支持更强大的实体提取。
+通知日历同步是一款 Android 日程辅助工具。它可以从系统通知中提取标题、正文、长文本和消息样式内容，根据关键词和来源应用进行过滤，然后识别其中的日期、时间、标题和地点，最后自动创建日历事件。
 
-尽管此应用申请了设备和通知访问权限，但是该程序本体**未使用网络访问权限**（FOSS 版本完全不申请网络权限），您的数据不会被存储，也不会传出设备。  
-（注：Full 版本中的 ML Kit SDK 可能会使用网络权限进行诊断数据上报，详情见[隐私政策](POLICY.md)）
+本软件适合经常通过通知接收会议安排、工作通知、群消息提醒的用户。用户可以通过设置关键词、来源应用、解析引擎、目标日历和提醒时间，让常见通知自动沉淀为日历事件，减少手动录入。
 
-需要 Android 6.0 或更高版本。
+## 核心功能
 
+- 监听系统通知，提取可用通知文本。
+- 按关键词过滤通知，减少无关消息进入解析流程。
+- 支持选择指定来源应用。
+- 自动识别日期、时间、标题和地点。
+- 将识别结果写入 Android 系统日历。
+- 支持配置事件提醒时间。
+- 创建成功后发送确认通知。
+- 支持从通知中打开或删除已创建事件。
+- 提供模拟通知测试，便于验证解析效果。
+- 支持后台保活和通知监听服务刷新。
 
-<!-- <video src="https://sharepoint.cf.stevezmt.top/cdn/assets/self/calsync-intro.mp4" style="max-width:100%;height:auto" controls autoplay>
-  您的浏览器不支持 video 标签。</video> -->
-<video src="https://sharepoint.cf.stevezmt.top/cdn/assets/self/calsync-intro.mp4" controls="controls" width="500" height="300"></video>
+## 解析能力
 
+软件支持多种解析方式：
 
-查看此应用的 [隐私政策](POLICY.md) 。
+- 内置规则解析：速度快，适合常见中文时间表达。
+- TimeNLP / xk-time：辅助处理更复杂的中文时间表达。
+- ML Kit：Full 版本可使用 Google ML Kit 实体提取能力。
+- 本地 GGUF 模型：可使用本地模型进行实验性解析。
+- 外部 AI API：Full 版本支持 OpenAI 兼容接口，如 DeepSeek、Kimi 等。
 
+外部 AI 模式下，AI 主要负责判断通知是否需要生成日程、提取标题和地点。对于明确的时间表达，软件会优先使用本地确定性解析，减少 AI 直接生成时间戳不稳定的问题。
 
-<details>
-<summary>详细信息</summary>
+## 外部 AI 行为说明
 
-### 包名  
-`top.stevezmt.calsync`
+当启用外部 AI API 后，软件会向用户配置的接口发送待解析文本和提示词。程序会区分以下结果：
 
-### SDK版本信息
-minSDK: 23
-tarSDK: 36
+- AI 成功解析并创建日程：通知中显示“日历已创建（外部 AI）”。
+- AI 判断无需生成日程：通知中显示“外部 AI 已跳过创建日程”。
+- AI 调用或解析失败：通知中显示“外部 AI 解析失败”，并说明失败原因。
 
-### 权限列表和说明  
-- android.permission.READ_CALENDAR
-  读取日历活动和详情  
-  必需的权限，它用于添加到特定日历和链接到日历事件的通知提示。
-- android.permission.WRITE_CALENDAR
-  添加或修改日历活动  
-  必需的权限，它用于添加到特定日历和链接到日历事件的通知提示。
-- android.permission.FOREGROUND_SERVICE
-  允许在前台运行服务  
-  必需的权限，它用于在后台持续监听通知。若拒绝此权限，应用将无法持续运作。
-- android.permission.FOREGROUND_SERVICE_SPECIAL_USE
-  允许在前台运行特殊用途服务（用于通知监听和保活）
-- android.permission.POST_NOTIFICATIONS
-  允许发送通知  
-  可选的权限，拒绝将导致您无法知晓哪些日历被更改或程序崩溃，也无法从通知中删除或编辑创建的日历。
-- android.permission.SCHEDULE_EXACT_ALARM
-  允许设置精确闹钟（用于崩溃后的通知提醒）
-- android.permission.QUERY_ALL_PACKAGES
-  允许查询所有已安装的应用包  
-  可选的权限，允许用户选取要检查通知的应用。若拒绝此权限，用户只能选择预设的应用包，或选择匹配所有通知来源。  
-- android.permission.BIND_NOTIFICATION_LISTENER_SERVICE
-  允许应用读取所有通知（核心功能）
-- android.permission.INTERNET / ACCESS_NETWORK_STATE
-  网络访问权限（**仅限 Full 版本**）  
-  由 ML Kit SDK 引入，用于模型管理和匿名诊断上报。程序本体不使用。
+这样用户可以清楚区分“AI 分析后决定不创建”和“网络、接口、返回格式错误导致失败”。
 
-### 三方库
-- **FOSS 版本**：未引入任何闭源三方库。
-- **Full 版本**：引入了 Google ML Kit (Entity Extraction) 用于增强解析。
-- **通用（源码集成/离线）**：集成并修改了 TimeNLP, xk-time, Jieba 等开源组件的逻辑。
+## 版本类型
 
-</details>
+本软件提供两个构建版本：
 
+- FOSS 版本：不包含闭源 SDK，不申请网络权限，更适合注重隐私和离线使用的场景。
+- Full 版本：包含 ML Kit 和外部 AI API 支持，需要网络权限，可获得更强的语义解析能力。
 
-## 使用指引
-将该应用安装到您的设备，按照提示授予 `日历`（**需完全访问权限**）和`通知`权限后，前往设置授予`设备和通知权限`（通知访问权），当通知栏看到`正在监听后台通知`常驻提示时，程序即已在后台运行。
+## 权限说明
 
-默认配置下会匹配通知中包含`通知``班级群`字样的所有来源的通知。
+软件可能使用以下权限：
 
+- 日历读取和写入权限：用于列出日历并创建事件。
+- 通知访问权限：用于监听通知内容，是核心功能所必需。
+- 通知发送权限：用于显示创建成功、跳过创建或错误提示。
+- 前台服务权限：用于在后台保持通知监听能力。
+- 精确闹钟权限：用于部分提醒或恢复场景。
+- 查询应用列表权限：用于让用户选择需要监听的来源应用。
+- 网络权限：仅 Full 版本用于 ML Kit 或外部 AI API。
 
-## 快速开始
+详情请查看 [隐私政策](POLICY.md)。
 
-依赖：
-- JDK 21
-- Gradle 8.10+
-- Android SDK（API 21+）
+## 使用流程
 
-### 克隆项目
-```bash
-git clone https://github.com/yourusername/calsync.git
-cd calsync
+1. 安装应用。
+2. 首次启动后阅读并同意隐私提示。
+3. 授予日历权限和通知访问权限。
+4. 在设置中配置关键词、来源应用、目标日历和解析引擎。
+5. 可通过“模拟通知测试”输入样例文本验证效果。
+6. 后台收到匹配通知后，软件会自动解析，并根据结果创建日历事件或给出明确反馈。
+
+## 示例
+
+通知文本：
+
+```text
+后天上午9点到10点，市公司总经理开会
 ```
 
-### 构建项目
+在当前日期为 2026-06-19 时，软件应解析为：
+
+- 日期：2026-06-21
+- 开始时间：09:00
+- 结束时间：10:00
+- 标题：由解析引擎或外部 AI 根据文本生成
+
+## 构建项目
+
+依赖环境：
+
+- JDK 21
+- Gradle 8.13+
+- Android SDK API 23+
+
+构建命令：
+
 ```bash
 # 构建 FOSS 版本
 ./gradlew assembleFossRelease
 
-# 构建 Full 版本 (含 ML Kit)
+# 构建 Full 版本，包含 ML Kit 和外部 AI 支持
 ./gradlew assembleFullRelease
-
-# 或者构建所有变体
-./gradlew assembleRelease
-
-# 仅构建调试版本
-./gradlew build
 ```
 
-### 运行测试
-```bash
-# 运行 FOSS 变体测试
-./gradlew :app:testFossDebugUnitTest
+## 技术信息
 
-# 运行 Full 变体测试
-./gradlew :app:testFullDebugUnitTest
-```
+- 平台：Android
+- 包名：`top.stevezmt.calsync`
+- 最低系统版本：Android 6.0
+- minSdk：23
+- targetSdk：35
+- 当前版本：`1.0.0`
+- 构建类型：FOSS / Full
+- 支持 ABI：`armeabi-v7a`、`arm64-v8a`、`x86`、`x86_64`、`riscv64`
 
-## 鸣谢
+## 注意事项
 
-https://github.com/NagiYan/TimeNLP
-https://github.com/xkzhangsan/xk-time
-https://github.com/huaban/jieba-analysis
-~~https://developers.google.cn/ml-kit?hl=zh-cn~~
-
+- 通知监听能力受系统和厂商后台限制影响，部分设备需要额外设置自启动、电池优化和后台保活。
+- 外部 AI API 的效果取决于用户配置的模型、提示词、网络状态和服务可用性。
+- AI 功能属于实验性能力，结果可能不完全准确，重要日程建议人工复核。
+- FOSS 版本无网络权限；Full 版本在启用相关能力时可能向外部服务发送待解析文本。
 
 ## 许可证
 
-GPL-3.0 License. 详情见 [LICENSE](LICENSE) 文件。
-
-```
-Copyright (C) 2025  Steve ZMT me@stevezmt.top
-
-This program is free software: you can redistribute it and/or modify
-it under the terms of the GNU General Public License as published by
-the Free Software Foundation, either version 3 of the License, or
-(at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU General Public License for more details.
-
-You should have received a copy of the GNU General Public License
-along with this program.  If not, see <https://gnu.ac.cn/licenses/>.
-```
+本项目基于 GPL-3.0 License 开源。详情见 [LICENSE](LICENSE)。

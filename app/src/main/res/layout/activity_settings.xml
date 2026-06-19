@@ -168,6 +168,7 @@
                         android:text="开启后会先判断通知是否可能包含时间表达，再进入完整解析，减少耗电" 
                         android:textAppearance="@style/TextAppearance.Material3.BodySmall" />
 
+                    <!-- AI GGUF Section -->
                     <LinearLayout
                         android:id="@+id/ai_section"
                         android:layout_width="match_parent"
@@ -182,19 +183,11 @@
                             android:text="AI 模型 (GGUF)"
                             android:textAppearance="@style/TextAppearance.Material3.TitleSmall" />
 
-                        <TextView
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:alpha="0.8"
-                            android:paddingTop="4dp"
-                            android:text="建议导入 1B / 0.8B 本地模型，存储为 gguf 文件" 
-                            android:textAppearance="@style/TextAppearance.Material3.BodySmall" />
-
                         <com.google.android.material.textfield.TextInputLayout
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
                             android:layout_marginTop="8dp"
-                            android:hint="模型文件 URI (content:// 或 file://)" >
+                            android:hint="模型文件 URI" >
 
                             <com.google.android.material.textfield.TextInputEditText
                                 android:id="@+id/edit_ai_model_path"
@@ -212,27 +205,83 @@
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
                             android:text="选择 GGUF 模型文件"
-                            app:icon="@drawable/restore_24"
-                            app:iconGravity="textStart"
-                            app:iconPadding="12dp"
                             android:layout_marginTop="6dp" />
+
+                    </LinearLayout>
+
+                    <!-- External AI Section -->
+                    <LinearLayout
+                        android:id="@+id/external_ai_section"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical"
+                        android:visibility="gone">
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="12dp"
+                            android:text="外部 AI 配置 (API)"
+                            android:textAppearance="@style/TextAppearance.Material3.TitleSmall" />
 
                         <com.google.android.material.textfield.TextInputLayout
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
                             android:layout_marginTop="8dp"
-                            android:hint="AI 提示词（可自定义）">
+                            android:hint="API Key">
 
                             <com.google.android.material.textfield.TextInputEditText
-                                android:id="@+id/edit_ai_prompt"
+                                android:id="@+id/edit_external_ai_key"
                                 android:layout_width="match_parent"
                                 android:layout_height="wrap_content"
-                                android:inputType="textMultiLine"
-                                android:minLines="3" />
+                                android:inputType="textPassword" />
+                        </com.google.android.material.textfield.TextInputLayout>
 
+                        <com.google.android.material.textfield.TextInputLayout
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="8dp"
+                            android:hint="API Base URL">
+
+                            <com.google.android.material.textfield.TextInputEditText
+                                android:id="@+id/edit_external_ai_url"
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:inputType="textUri" />
+                        </com.google.android.material.textfield.TextInputLayout>
+
+                        <com.google.android.material.textfield.TextInputLayout
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="8dp"
+                            android:hint="模型名称 (Model)">
+
+                            <com.google.android.material.textfield.TextInputEditText
+                                android:id="@+id/edit_external_ai_model"
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:inputType="text" />
                         </com.google.android.material.textfield.TextInputLayout>
 
                     </LinearLayout>
+
+                    <!-- Common AI Prompt -->
+                    <com.google.android.material.textfield.TextInputLayout
+                        android:id="@+id/ai_prompt_layout"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="8dp"
+                        android:hint="AI 提示词 (Prompt)"
+                        android:visibility="gone">
+
+                        <com.google.android.material.textfield.TextInputEditText
+                            android:id="@+id/edit_ai_prompt"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:inputType="textMultiLine"
+                            android:minLines="3" />
+
+                    </com.google.android.material.textfield.TextInputLayout>
 
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
@@ -257,14 +306,6 @@
                         android:layout_height="wrap_content"
                         android:text="高级匹配（谨慎调整）"
                         android:textAppearance="@style/TextAppearance.Material3.TitleSmall" />
-
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:paddingTop="4dp"
-                        android:text="修改将影响正则匹配效果"
-                        android:textAppearance="@style/TextAppearance.Material3.BodySmall"
-                        android:alpha="0.8" />
 
                     <com.google.android.material.textfield.TextInputLayout
                         android:layout_width="match_parent"

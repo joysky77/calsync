@@ -17,6 +17,9 @@ import java.util.Date
 import java.util.Locale
 
 class AboutActivity : AppCompatActivity() {
+    private companion object {
+        const val BLOG_URL = "https://joysky77.github.io/MyBlog/"
+    }
 
     private val backupCreateLauncher = registerForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
         if (uri != null) {
@@ -199,7 +202,7 @@ class AboutActivity : AppCompatActivity() {
         // Report bug
         findViewById<LinearLayout>(R.id.row_report_bug).setOnClickListener {
             try {
-                val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/stevezmtstudios/calsync/issues/new/choose"))
+                val intent = Intent(Intent.ACTION_VIEW, Uri.parse(BLOG_URL))
                 startActivity(intent)
             } catch (e: Exception) {
                 Toast.makeText(this, getString(R.string.error_open_browser), Toast.LENGTH_SHORT).show()
@@ -209,7 +212,7 @@ class AboutActivity : AppCompatActivity() {
         // Open source repo
         findViewById<LinearLayout>(R.id.row_open_source).setOnClickListener {
             try {
-                val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/stevezmtstudios/calsync"))
+                val intent = Intent(Intent.ACTION_VIEW, Uri.parse(BLOG_URL))
                 startActivity(intent)
             } catch (e: Exception) {
                 Toast.makeText(this, getString(R.string.error_open_browser), Toast.LENGTH_SHORT).show()
@@ -219,7 +222,7 @@ class AboutActivity : AppCompatActivity() {
         // Contact author
         findViewById<LinearLayout>(R.id.row_contact_author).setOnClickListener {
             try {
-                val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://stevezmt.top"))
+                val intent = Intent(Intent.ACTION_VIEW, Uri.parse(BLOG_URL))
                 startActivity(intent)
             } catch (e: Exception) {
                 Toast.makeText(this, getString(R.string.error_open_browser), Toast.LENGTH_SHORT).show()

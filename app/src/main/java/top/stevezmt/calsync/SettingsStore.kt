@@ -1,10 +1,15 @@
 package top.stevezmt.calsync
 
 import android.content.Context
+import android.content.SharedPreferences
 import androidx.core.content.edit
+import androidx.security.crypto.EncryptedSharedPreferences
+import androidx.security.crypto.MasterKey
 
 object SettingsStore {
     private const val PREFS = "calsync_prefs"
+    private const val PREFS_SECURE = "calsync_prefs_secure"
+    
     private const val KEY_KEYWORDS = "keywords"
     private const val KEY_CAL_ID = "calendar_id"
     private const val KEY_CAL_NAME = "calendar_name"
@@ -29,9 +34,27 @@ object SettingsStore {
     private const val KEY_AI_GGUF_URI = "ai_gguf_uri"
     private const val KEY_AI_SYSTEM_PROMPT = "ai_system_prompt"
 
+    // External AI (API)
+    private const val KEY_EXTERNAL_AI_KEY = "external_ai_key"
+    private const val KEY_EXTERNAL_AI_URL = "external_ai_url"
+    private const val KEY_EXTERNAL_AI_MODEL = "external_ai_model"
+
     // Battery saver: lightweight guess before full parsing
     private const val KEY_GUESS_BEFORE_PARSE = "guess_before_parse"
     private const val KEY_PRIVACY_ACCEPTED = "privacy_accepted"
+
+    private fun getEncryptedPrefs(context: Context): SharedPreferences {
+        val masterKey = MasterKey.Builder(context)
+            .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
+            .build()
+        return EncryptedSharedPreferences.create(
+            context,
+            PREFS_SECURE,
+            masterKey,
+            EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+            EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
+        )
+    }
 
     fun isPrivacyAccepted(context: Context): Boolean {
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -98,6 +121,7 @@ object SettingsStore {
             when (engine) {
                 ParseEngine.AI_GGUF -> putInt(KEY_EVENT_ENGINE, EventParseEngine.AI_GGUF.id)
                 ParseEngine.ML_KIT -> putInt(KEY_EVENT_ENGINE, EventParseEngine.ML_KIT.id)
+                ParseEngine.EXTERNAL_AI -> putInt(KEY_EVENT_ENGINE, EventParseEngine.EXTERNAL_AI.id)
                 else -> putInt(KEY_EVENT_ENGINE, EventParseEngine.BUILTIN.id)
             }
         }
@@ -116,10 +140,11 @@ object SettingsStore {
             when (engine) {
                 EventParseEngine.AI_GGUF -> putInt(KEY_PARSING_ENGINE, ParseEngine.AI_GGUF.id)
                 EventParseEngine.ML_KIT -> putInt(KEY_PARSING_ENGINE, ParseEngine.ML_KIT.id)
+                EventParseEngine.EXTERNAL_AI -> putInt(KEY_PARSING_ENGINE, ParseEngine.EXTERNAL_AI.id)
                 else -> {
                     // If user turns off AI/ML for event parsing, turn off for datetime too.
                     val current = getParsingEngine(context)
-                    if (current == ParseEngine.AI_GGUF || current == ParseEngine.ML_KIT) {
+                    if (current == ParseEngine.AI_GGUF || current == ParseEngine.ML_KIT || current == ParseEngine.EXTERNAL_AI) {
                         putInt(KEY_PARSING_ENGINE, ParseEngine.BUILTIN.id)
                     }
                 }
@@ -167,11 +192,76 @@ object SettingsStore {
         prefs.edit { putString(KEY_AI_SYSTEM_PROMPT, prompt) }
     }
 
+    // External AI getters/setters (Encrypted)
+    fun getExternalAiKey(context: Context): String? {
+        return try {
+            val prefs = getEncryptedPrefs(context)
+            prefs.getString(KEY_EXTERNAL_AI_KEY, null)
+        } catch (e: Exception) {
+            // Fallback for migration or errors: check unencrypted prefs
+            val legacyPrefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            val legacyKey = legacyPrefs.getString(KEY_EXTERNAL_AI_KEY, null)
+            if (legacyKey != null) {
+                // Migrate to encrypted
+                setExternalAiKey(context, legacyKey)
+                legacyPrefs.edit { remove(KEY_EXTERNAL_AI_KEY) }
+            }
+            legacyKey
+        }
+    }
+
+    fun setExternalAiKey(context: Context, key: String?) {
+        try {
+            val prefs = getEncryptedPrefs(context)
+            prefs.edit { putString(KEY_EXTERNAL_AI_KEY, key) }
+        } catch (_: Exception) {}
+    }
+
+    fun getExternalAiUrl(context: Context): String {
+        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        return prefs.getString(KEY_EXTERNAL_AI_URL, "https://api.deepseek.com") ?: "https://api.deepseek.com"
+    }
+
+    fun setExternalAiUrl(context: Context, url: String) {
+        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        prefs.edit { putString(KEY_EXTERNAL_AI_URL, url) }
+    }
+
+    fun getExternalAiModel(context: Context): String {
+        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        return prefs.getString(KEY_EXTERNAL_AI_MODEL, "deepseek-chat") ?: "deepseek-chat"
+    }
+
+    fun setExternalAiModel(context: Context, model: String) {
+        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        prefs.edit { putString(KEY_EXTERNAL_AI_MODEL, model) }
+    }
+
     private fun defaultAiSystemPrompt(): String {
         return """
-你是一个日程解析器。请从输入文本中提取一个事件的开始时间(start)与结束时间(end)，并尽量给出简短标题(title)和地点(location)。
-输出必须是 JSON：{\"start\":<epochMillis>,\"end\":<epochMillis|null>,\"title\":<string|null>,\"location\":<string|null>}。
-若无法解析，输出空 JSON：{}。
+你是用户的日程秘书，需要根据输入文本解析日程。
+
+如果输入文本是会议、活动、调研、培训、座谈、汇报、通知等相关内容，请根据文本中的参会对象判断用户是否需要参加。若无法准确判断，默认用户需要参加。
+
+如果能准确判断用户需要参加，请正常解析日程。
+如果能准确判断用户无需参加，请仍然解析日程，但在 title 前添加“无需参会：”。
+
+请严格从输入文本中提取一个事件：
+- startMillis：事件开始时间，必须是 Unix 毫秒时间戳。
+- endMillis：事件结束时间，必须是 Unix 毫秒时间戳；如果无法准确判断结束时间，默认为开始时间后 2 小时。
+- title：会议或事件的简短名称，末尾必须添加“ from AI”。
+- location：地点；无法判断则为 null。
+
+必须特别注意：
+- “明天”“后天”“周一”“本周五”“下周一”等相对日期，必须基于用户消息中给出的当前时间基准 nowLocal/today/weekday/currentEpochMillis 计算。
+- 不要输出解释、Markdown、代码块或多余文字。
+- 输出必须且只能是一个 JSON 对象。
+
+格式严格如下：
+{"startMillis":<epochMillis>,"endMillis":<epochMillis>,"title":<string|null>,"location":<string|null>}
+
+若完全无法解析开始时间，输出：
+{}
 """.trimIndent()
     }
 

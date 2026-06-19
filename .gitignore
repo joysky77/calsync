@@ -16,3 +16,10 @@ local.properties
 .idea/
 .vscode/
 app/release/
+app/full/
+app/build/
+.kotlin/
+*.apk
+*.aab
+*.ap_
+添加ai功能版本/

@@ -82,8 +82,11 @@
         <!-- EventActionReceiver is internal-only; keep it non-exported so external apps cannot send broadcasts. -->
         <receiver android:name="top.stevezmt.calsync.EventActionReceiver" android:exported="false" />
 
-    <!-- Receiver to support copy-to-clipboard action from error notifications -->
-    <receiver android:name="top.stevezmt.calsync.ErrorNotificationReceiver" android:exported="false" />
+        <!-- Receiver to support copy-to-clipboard action from error notifications -->
+        <receiver android:name="top.stevezmt.calsync.ErrorNotificationReceiver" android:exported="false" />
+
+        <!-- Receiver used by CalSyncApp to show a deferred crash notification after process restart. -->
+        <receiver android:name="top.stevezmt.calsync.CrashNotifierReceiver" android:exported="false" />
 
         <provider
             android:name="androidx.core.content.FileProvider"

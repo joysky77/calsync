@@ -6,20 +6,17 @@ plugins {
 tasks.withType<JavaCompile> {
     options.encoding = "utf-8"
 }
+
 android {
     namespace = "top.stevezmt.calsync"
-    compileSdk = 36
-
-    // Native (llama.cpp) build requires a valid NDK installation.
-    // Pin to an installed version that contains source.properties.
-    ndkVersion = "29.0.13599879"
+    compileSdk = 35
 
     defaultConfig {
         applicationId = "top.stevezmt.calsync"
         minSdk = 23
-        targetSdk = 36
-        versionCode = 13
-        versionName = "0.1.7"
+        targetSdk = 35
+        versionCode = 100
+        versionName = "1.0.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
@@ -30,8 +27,6 @@ android {
                 if (requestedAbis != null) {
                     abiFilters.addAll(requestedAbis)
                 } else {
-                    // Include riscv64 in the build (will be in universal APK) 
-                    // but not necessarily in the splits include list below
                     abiFilters.addAll(listOf("arm64-v8a", "x86_64", "armeabi-v7a", "x86", "riscv64"))
                 }
             }
@@ -53,17 +48,11 @@ android {
         }
     }
 
-    val requestedAbis = project.findProperty("abiFilter")?.toString()?.split(",")
     splits {
         abi {
             isEnable = true
             reset()
-            if (requestedAbis != null) {
-                include(*requestedAbis.toTypedArray())
-            } else {
-                // Include major architectures and riscv64
-                include("arm64-v8a", "x86_64", "armeabi-v7a", "x86", "riscv64")
-            }
+            include("arm64-v8a", "x86_64", "armeabi-v7a", "x86", "riscv64")
             isUniversalApk = false
         }
     }
@@ -71,14 +60,10 @@ android {
     buildTypes {
         release {
             isMinifyEnabled = false
-            // TODO: Remove this before production release
-            // signingConfig = signingConfigs.getByName("debug")
-            proguardFiles(
-                getDefaultProguardFile("proguard-android-optimize.txt"),
-                "proguard-rules.pro"
-            )
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
     }
+    
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11
@@ -87,37 +72,12 @@ android {
         jvmTarget = "11"
     }
 
-    externalNativeBuild {
-        cmake {
-            path = file("src/main/cpp/CMakeLists.txt")
-        }
-    }
-
-    applicationVariants.all {
-        val baseVersionCode = versionCode
-        // Fix for F-Droid: Ensure BuildConfig.VERSION_CODE is consistent across ABI splits
-        // by forcing it to the base version code.
-        buildConfigField("int", "VERSION_CODE", "${baseVersionCode}")
-
-        outputs.all {
-            val output = this as com.android.build.gradle.internal.api.ApkVariantOutputImpl
-            val abi = output.getFilter(com.android.build.OutputFile.ABI)
-
-            // Map ABI to a suffix as requested by F-Droid auditors
-            // 1 for armeabi-v7a, 2 for arm64-v8a, etc.
-            val abiSuffix = when (abi) {
-                "armeabi-v7a" -> 1
-                "arm64-v8a" -> 2
-                "x86" -> 3
-                "x86_64" -> 4
-                "riscv64" -> 5
-                else -> 0 // universal or others
+    val llamaCmake = file("../third_party/llama.cpp/CMakeLists.txt")
+    if (llamaCmake.exists()) {
+        externalNativeBuild {
+            cmake {
+                path = file("src/main/cpp/CMakeLists.txt")
             }
-
-            output.versionCodeOverride = baseVersionCode * 10 + abiSuffix
-
-            val abiName = abi ?: "universal"
-            output.outputFileName = "calsync-${versionName}-${abiName}.apk"
         }
     }
 
@@ -125,21 +85,55 @@ android {
         includeInApk = false
         includeInBundle = false
     }
+
+    // 针对 AGP 8.x 的 KTS 脚本，使用修复后的 applicationVariants 逻辑
+    // 这种方式在处理 APK 重命名和版本号偏移时最稳定，避免了新 API 接口解析失败的问题
+    @Suppress("DEPRECATION")
+    applicationVariants.all {
+        val variant = this
+        val baseVersionCode = variant.versionCode
+        
+        // 设置 BuildConfig 中的 VERSION_CODE
+        variant.buildConfigField("int", "VERSION_CODE", "${baseVersionCode}")
+        
+        variant.outputs.all {
+            val output = this
+            if (output is com.android.build.gradle.api.ApkVariantOutput) {
+                // 修复：使用 VariantOutput.FilterType.ABI 枚举代替 String，解决类型不匹配错误
+                val abi = output.getFilter(com.android.build.VariantOutput.FilterType.ABI)
+                
+                val abiSuffix = when (abi) {
+                    "armeabi-v7a" -> 1
+                    "arm64-v8a" -> 2
+                    "x86" -> 3
+                    "x86_64" -> 4
+                    "riscv64" -> 5
+                    else -> 0
+                }
+                
+                val apkVersionCode = baseVersionCode * 10 + abiSuffix
+                output.versionCodeOverride = apkVersionCode
+                val abiName = abi ?: "universal"
+                output.outputFileName = "calsync-${variant.versionName}-vc${apkVersionCode}-${abiName}.apk"
+            }
+        }
+    }
 }
 
 dependencies {
-
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.appcompat)
     implementation(libs.material)
-    // jieba for chinese segmentation to improve title extraction
     implementation(libs.jieba)
-    // Natural language time parsing (Java, rule-based)
     implementation(libs.xk.time)
+    implementation(libs.okhttp)
+    implementation(libs.androidx.security.crypto)
     "fullImplementation"(libs.mlkit.entity.extraction)
+    
     testImplementation(libs.junit)
     testImplementation(libs.mockito.core)
     testImplementation(libs.mockito.kotlin)
+    testImplementation("org.json:json:20240303")
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
 }

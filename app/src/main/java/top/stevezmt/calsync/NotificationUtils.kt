@@ -135,11 +135,12 @@ object NotificationUtils {
 		}
 	}
 
-	fun sendEventCreated(context: Context, eventId: Long, startMillis: Long, title: String, location: String?) {
+	fun sendEventCreated(context: Context, eventId: Long, startMillis: Long, title: String, location: String?, sourceLabel: String? = null) {
 		ensureChannels(context)
 		val fmt = java.text.SimpleDateFormat("M月d日 H:mm", java.util.Locale.getDefault())
-		val header = fmt.format(java.util.Date(startMillis)) + " 日历已创建"
+		val header = fmt.format(java.util.Date(startMillis)) + " 日历已创建" + (sourceLabel?.let { "（$it）" } ?: "")
 		val content = title + (if (!location.isNullOrBlank()) " @ $location" else "")
+		val body = if (sourceLabel.isNullOrBlank()) content else "$content\n解析来源: $sourceLabel"
 		val deleteIntent = Intent(context, EventActionReceiver::class.java).apply {
 			action = EventActionReceiver.ACTION_DELETE_EVENT
 			putExtra(EventActionReceiver.EXTRA_EVENT_ID, eventId)
@@ -159,12 +160,36 @@ object NotificationUtils {
 			.setSmallIcon(R.mipmap.ic_launcher)
 			.setContentTitle(header)
 			.setContentText(content)
-			.setStyle(NotificationCompat.BigTextStyle().bigText(content))
+			.setStyle(NotificationCompat.BigTextStyle().bigText(body))
 			.addAction(android.R.drawable.ic_menu_delete, "删除事件", pi)
 			.setContentIntent(viewPi)
 			.setAutoCancel(true)
 			.build()
 		safeNotify(context, ((eventId shl 1) % Int.MAX_VALUE).toInt(), n)
+	}
+
+	fun sendAiSkipped(context: Context, message: String) {
+		ensureChannels(context)
+		val n = NotificationCompat.Builder(context, CHANNEL_CONFIRM)
+			.setSmallIcon(R.mipmap.ic_launcher)
+			.setContentTitle("外部 AI 已跳过创建日程")
+			.setContentText(message)
+			.setStyle(NotificationCompat.BigTextStyle().bigText(message))
+			.setAutoCancel(true)
+			.build()
+		safeNotify(context, (System.currentTimeMillis() % Int.MAX_VALUE).toInt(), n)
+	}
+
+	fun sendAiFailure(context: Context, message: String) {
+		ensureChannels(context)
+		val n = NotificationCompat.Builder(context, CHANNEL_ERROR)
+			.setSmallIcon(R.mipmap.ic_launcher)
+			.setContentTitle("外部 AI 解析失败")
+			.setContentText(message)
+			.setStyle(NotificationCompat.BigTextStyle().bigText(message))
+			.setAutoCancel(true)
+			.build()
+		safeNotify(context, (System.currentTimeMillis() % Int.MAX_VALUE).toInt(), n)
 	}
 
 	fun cancelEventNotifications(context: Context, eventId: Long) {
