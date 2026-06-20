@@ -110,6 +110,9 @@ class AboutActivity : AppCompatActivity() {
                     if (json.has("selectedCalendarId")) {
                         SettingsStore.setSelectedCalendar(this, json.getLong("selectedCalendarId"), json.optString("selectedCalendarName"))
                     }
+                    if (json.has("defaultEventDurationMinutes")) {
+                        SettingsStore.setDefaultEventDurationMinutes(this, json.getInt("defaultEventDurationMinutes"))
+                    }
                     if (json.has("selectedApps")) {
                         val apps = json.getJSONArray("selectedApps")
                         val pkgs = mutableListOf<String>()
@@ -155,6 +158,7 @@ class AboutActivity : AppCompatActivity() {
                 json.put("customRules", SettingsStore.getCustomRules(this))
                 json.put("preferFuture", SettingsStore.getPreferFutureOption(this))
                 json.put("keepAlive", SettingsStore.isKeepAliveEnabled(this))
+                json.put("defaultEventDurationMinutes", SettingsStore.getDefaultEventDurationMinutes(this))
                 val calendarId = SettingsStore.getSelectedCalendarId(this)
                 if (calendarId != null) {
                     json.put("selectedCalendarId", calendarId)

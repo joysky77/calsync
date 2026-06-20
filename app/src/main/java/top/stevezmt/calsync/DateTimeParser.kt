@@ -53,7 +53,7 @@ object DateTimeParser {
     private val monthDayPattern = Pattern.compile("(\\d{1,2}|[一二三四五六七八九十百]+)月(\\d{1,2}|[一二三四五六七八九十]+)[日号]?")
     private val monthDayRangePattern = Pattern.compile("(\\d{1,2}|[一二三四五六七八九十百]+)月(\\d{1,2}|[一二三四五六七八九十]+)[日号]?\\s*[~-至到]+\\s*(\\d{1,2}|[一二三四五六七八九十百]+)月?(\\d{1,2}|[一二三四五六七八九十]+)[日号](?![A-Za-z])")
     private val timePattern = Pattern.compile("(上午|下午|中午|晚上|凌晨|今晚|明晚)?\\s*([0-9]{1,2}|[一二三四五六七八九十百]+)(?:${colon}([0-5]?\\d))?点?")
-    private val weekdayTimePattern = Pattern.compile("((?:周|星期)[一二三四五六日天])(?:[上下午]|上午|下午)?\\s*(\\d{1,2})${colon}(\\d{1,2})")
+    private val weekdayTimePattern = Pattern.compile("((?:下下|本|下)?\\s*(?:周|星期|礼拜|禮拜)\\s*[一二三四五六日天0-7])\\s*(?:上午|早上|下午|晚上|中午|凌晨|上|下)?\\s*(\\d{1,2})(?:(?:${colon}|点)\\s*(\\d{1,2})|点)?")
 
     fun extractAllSentencesContainingDate(context: android.content.Context, text: String): List<String> {
         val delimiters = Regex("[。！？.!?；;，,]\\s*")
@@ -111,6 +111,11 @@ object DateTimeParser {
     }
 
     fun parseDateTime(sentence: String): ParseResult? = RuleBasedStrategy.tryParseStandalone(sentence)
+
+    internal fun parseDeterministicTimeForTest(sentence: String, baseMillis: Long): ParseResult? {
+        val seed = ParseResult(baseMillis, null, "test", null)
+        return applyDeterministicTimeOverride(sentence, baseMillis, seed)
+    }
 
     fun consumeExternalAiStatus(): ExternalAiStatus? {
         val status = externalAiStatus.get()
@@ -311,7 +316,7 @@ object DateTimeParser {
                         return null
                     }
                     val aiResult = parseExternalAiJsonToResult(aiJson)
-                    val finalResult = applyDeterministicTimeOverride(sentence, baseMillis, aiResult)
+                    val finalResult = buildExternalAiFinalResult(sentence, baseMillis, aiResult)
                     if (finalResult != null) {
                         externalAiStatus.set(ExternalAiStatus(ExternalAiOutcome.CREATED, "外部 AI 已解析并创建日程"))
                     }
@@ -330,8 +335,59 @@ object DateTimeParser {
         externalAiStatus.set(ExternalAiStatus(ExternalAiOutcome.ERROR, message))
     }
 
+    private data class ExternalAiParsed(
+        val startMillis: Long?,
+        val endMillis: Long?,
+        val title: String?,
+        val location: String?,
+        val timeText: String?,
+        val attendance: AttendanceDecision
+    )
+
+    private enum class AttendanceDecision {
+        REQUIRED,
+        NOT_REQUIRED,
+        UNCERTAIN
+    }
+
+    private fun buildExternalAiFinalResult(sentence: String, baseMillis: Long, aiParsed: ExternalAiParsed?): ParseResult? {
+        if (aiParsed == null) return null
+        val rawTitle = aiParsed.title
+        val title = normalizeAttendanceTitle(rawTitle, aiParsed.attendance)
+        if (title == null) {
+            externalAiStatus.set(ExternalAiStatus(ExternalAiOutcome.SKIPPED_BY_AI, "AI 未返回可用标题，已跳过创建"))
+            return null
+        }
+
+        val seedStart = aiParsed.startMillis ?: baseMillis
+        val seed = ParseResult(seedStart, aiParsed.endMillis, title, aiParsed.location)
+        val candidates = listOfNotNull(aiParsed.timeText, sentence).distinct()
+        for (candidate in candidates) {
+            applyDeterministicTimeOverride(candidate, baseMillis, seed)?.let { return it }
+        }
+
+        if (aiParsed.startMillis != null) return seed
+        externalAiStatus.set(ExternalAiStatus(ExternalAiOutcome.SKIPPED_BY_AI, "AI 未返回有效开始时间，且本地无法解析时间"))
+        return null
+    }
+
+    private fun normalizeAttendanceTitle(title: String?, attendance: AttendanceDecision): String? {
+        val cleanTitle = title?.trim()?.takeIf { it.isNotBlank() } ?: return null
+        return when (attendance) {
+            AttendanceDecision.NOT_REQUIRED -> {
+                if (cleanTitle.startsWith("无需参会：") || cleanTitle.startsWith("无需参会:")) {
+                    cleanTitle
+                } else {
+                    "无需参会：$cleanTitle"
+                }
+            }
+            AttendanceDecision.REQUIRED, AttendanceDecision.UNCERTAIN -> cleanTitle
+        }
+    }
+
     private fun applyDeterministicTimeOverride(sentence: String, baseMillis: Long, aiResult: ParseResult?): ParseResult? {
         if (aiResult == null) return null
+        parseExplicitWeekdayDateTime(sentence, baseMillis, aiResult)?.let { return it }
         parseExplicitRelativeDateTime(sentence, baseMillis, aiResult)?.let { return it }
         val slots = try {
             TimeNLPAdapter.parse(sentence, baseMillis)
@@ -355,6 +411,43 @@ object DateTimeParser {
             title = aiResult?.title,
             location = aiResult?.location
         )
+    }
+
+    private fun parseExplicitWeekdayDateTime(sentence: String, baseMillis: Long, aiResult: ParseResult): ParseResult? {
+        val number = "([0-9]{1,2}|[一二三四五六七八九十两]+)"
+        val minute = "(?:\\s*(?:[:：点])\\s*([0-5]?\\d)\\s*(?:分)?)?"
+        val prefix = "(下下|本|下)?"
+        val weekday = "(?:周|星期|礼拜|禮拜)\\s*([一二三四五六日天0-7])"
+        val ampm = "(上午|早上|下午|晚上|中午|凌晨)?"
+        val timeSuffix = "\\s*(?:点|分)?"
+        val rangePattern = Regex("$prefix\\s*$weekday\\s*$ampm\\s*$number$minute$timeSuffix\\s*(?:到|至|~|～|-|－|—)\\s*$ampm\\s*$number$minute$timeSuffix")
+        val singlePattern = Regex("$prefix\\s*$weekday\\s*$ampm\\s*$number$minute$timeSuffix")
+
+        val range = rangePattern.find(sentence)
+        if (range != null) {
+            val weekPrefix = range.groupValues[1]
+            val targetDow = parseWeekday(range.groupValues[2]) ?: return null
+            val startAmpm = range.groupValues[3].ifBlank { null }
+            val startHour = toArabic(range.groupValues[4])
+            val startMinute = range.groupValues[5].toIntOrNull() ?: 0
+            val endAmpm = range.groupValues[6].ifBlank { startAmpm }
+            val endHour = toArabic(range.groupValues[7])
+            val endMinute = range.groupValues[8].toIntOrNull() ?: 0
+
+            val startCal = buildWeekdayCalendar(baseMillis, weekPrefix, targetDow, startAmpm, startHour, startMinute)
+            val endCal = buildWeekdayCalendar(baseMillis, weekPrefix, targetDow, endAmpm, endHour, endMinute)
+            if (endCal.timeInMillis <= startCal.timeInMillis) endCal.add(Calendar.DAY_OF_MONTH, 1)
+            return aiResult.copy(startMillis = startCal.timeInMillis, endMillis = endCal.timeInMillis)
+        }
+
+        val single = singlePattern.find(sentence) ?: return null
+        val weekPrefix = single.groupValues[1]
+        val targetDow = parseWeekday(single.groupValues[2]) ?: return null
+        val startAmpm = single.groupValues[3].ifBlank { null }
+        val startHour = toArabic(single.groupValues[4])
+        val startMinute = single.groupValues[5].toIntOrNull() ?: 0
+        val start = buildWeekdayCalendar(baseMillis, weekPrefix, targetDow, startAmpm, startHour, startMinute).timeInMillis
+        return aiResult.copy(startMillis = start)
     }
 
     private fun parseExplicitRelativeDateTime(sentence: String, baseMillis: Long, aiResult: ParseResult): ParseResult? {
@@ -416,6 +509,55 @@ object DateTimeParser {
         return cal
     }
 
+    private fun parseWeekday(token: String): Int? {
+        return when (token.trim()) {
+            "日", "天", "0", "7" -> Calendar.SUNDAY
+            "一", "1" -> Calendar.MONDAY
+            "二", "2" -> Calendar.TUESDAY
+            "三", "3" -> Calendar.WEDNESDAY
+            "四", "4" -> Calendar.THURSDAY
+            "五", "5" -> Calendar.FRIDAY
+            "六", "6" -> Calendar.SATURDAY
+            else -> null
+        }
+    }
+
+    private fun buildWeekdayCalendar(baseMillis: Long, weekPrefix: String, targetDow: Int, ampm: String?, hourRaw: Int, minute: Int): Calendar {
+        val cal = Calendar.getInstance().apply {
+            timeInMillis = baseMillis
+            set(Calendar.HOUR_OF_DAY, adjustHourByAmPm(hourRaw, ampm))
+            set(Calendar.MINUTE, minute)
+            set(Calendar.SECOND, 0)
+            set(Calendar.MILLISECOND, 0)
+        }
+        val currentIsoDow = toIsoWeekday(cal.get(Calendar.DAY_OF_WEEK))
+        val targetIsoDow = toIsoWeekday(targetDow)
+        val daysUntil = when (weekPrefix) {
+            "下" -> (8 - currentIsoDow) + (targetIsoDow - 1)
+            "下下" -> (8 - currentIsoDow) + 7 + (targetIsoDow - 1)
+            "本" -> targetIsoDow - currentIsoDow
+            else -> {
+                var delta = (targetIsoDow - currentIsoDow + 7) % 7
+                if (delta == 0 && cal.timeInMillis <= baseMillis) delta = 7
+                delta
+            }
+        }
+        cal.add(Calendar.DAY_OF_MONTH, daysUntil)
+        return cal
+    }
+
+    private fun toIsoWeekday(calendarDayOfWeek: Int): Int {
+        return when (calendarDayOfWeek) {
+            Calendar.MONDAY -> 1
+            Calendar.TUESDAY -> 2
+            Calendar.WEDNESDAY -> 3
+            Calendar.THURSDAY -> 4
+            Calendar.FRIDAY -> 5
+            Calendar.SATURDAY -> 6
+            else -> 7
+        }
+    }
+
     private fun hasExplicitEndTime(sentence: String): Boolean {
         val rangeConnectors = listOf("到", "至", "-", "－", "—", "~", "～")
         if (rangeConnectors.any { sentence.contains(it) }) return true
@@ -462,18 +604,21 @@ object DateTimeParser {
 - currentEpochMillis: $baseMillis
 
 请只解析下面输入文本中的一个日程事件，并严格遵守：
-1. “今天、明天、后天、周一、本周五、下周一”等相对日期，必须基于上面的 nowLocal/today/weekday/currentEpochMillis 计算，不能基于模型训练时间或服务器时间。
+1. “今天、明天、后天、周一、周2、本周五、下周一”等相对日期，必须基于上面的 nowLocal/today/weekday/currentEpochMillis 计算，不能基于模型训练时间或服务器时间。
 2. startMillis 必须是 Unix 毫秒时间戳，不是秒时间戳；无法准确判断开始时间时必须为 null。
 3. endMillis 必须是 Unix 毫秒时间戳；无法准确判断结束时间时必须为 null，不要自动补默认时长。
 4. title 为简短会议/事件名称；如果系统提示词要求添加后缀或“无需参会”，必须照做。
 5. location 为地点；无法判断则为 null。
-6. 不要输出解释、Markdown、代码块或多余文字，只输出 JSON 对象。
+6. attendance 表示参会判断，只能是 "required"、"not_required"、"uncertain"。能准确判断无需参加时必须返回 "not_required"；无法准确判断时返回 "uncertain"。
+7. 不要输出解释、Markdown、代码块或多余文字，只输出 JSON 对象。
 
 输出格式：
-{"startMillis":<epochMillis|null>,"endMillis":<epochMillis|null>,"title":<string|null>,"location":<string|null>}
+{"startMillis":<epochMillis|null>,"endMillis":<epochMillis|null>,"title":<string|null>,"location":<string|null>,"timeText":<string|null>,"attendance":<"required"|"not_required"|"uncertain">}
+
+timeText 必须填写原文中的时间片段，例如“周4下午2点”“后天上午9点到10点”“6月25日14:30”；没有明确时间片段则为 null。
 
 无法解析开始时间或无法提取可用标题时输出：
-{"startMillis":null,"endMillis":null,"title":null,"location":null}
+{"startMillis":null,"endMillis":null,"title":null,"location":null,"timeText":null,"attendance":"uncertain"}
 
 输入文本：
 $sentence
@@ -498,13 +643,22 @@ $sentence
         } catch (_: Throwable) { null }
     }
 
-    private fun parseExternalAiJsonToResult(json: String): ParseResult? {
+    private fun parseExternalAiJsonToResult(json: String): ExternalAiParsed? {
         return try {
             val obj = JSONObject(json)
             val title = obj.optString("title", "").takeIf { it.isNotBlank() }
             val location = obj.optString("location", "").takeIf { it.isNotBlank() }
+            val timeText = listOf("timeText", "time_text", "timeExpression", "time_expression", "originalTimeText")
+                .firstNotNullOfOrNull { key -> obj.optString(key, "").takeIf { it.isNotBlank() } }
+            val attendance = parseAttendanceDecision(obj)
 
-            if (obj.isNull("startMillis")) {
+            val start = if (obj.isNull("startMillis")) {
+                null
+            } else {
+                coerceEpochMillis(obj.optLong("startMillis", -1L)).takeIf { it > 0 }
+            }
+
+            if (start == null && timeText == null) {
                 val reason = if (title == null && location == null) {
                     "AI 判断无需生成日程"
                 } else {
@@ -514,25 +668,39 @@ $sentence
                 return null
             }
 
-            val start = coerceEpochMillis(obj.optLong("startMillis", -1L)).takeIf { it > 0 }
-            if (start == null) {
-                externalAiStatus.set(ExternalAiStatus(ExternalAiOutcome.ERROR, "外部 AI 返回的 startMillis 无效"))
-                return null
-            }
-            if (title == null) {
-                externalAiStatus.set(ExternalAiStatus(ExternalAiOutcome.SKIPPED_BY_AI, "AI 未返回可用标题，已跳过创建"))
-                return null
-            }
-
             val end = if (obj.isNull("endMillis")) {
                 null
             } else {
-                coerceEpochMillis(obj.optLong("endMillis", 0L)).takeIf { it > start }
+                coerceEpochMillis(obj.optLong("endMillis", 0L)).takeIf { start == null || it > start }
             }
-            ParseResult(start, end, title, location)
+            ExternalAiParsed(start, end, title, location, timeText, attendance)
         } catch (t: Throwable) {
             externalAiStatus.set(ExternalAiStatus(ExternalAiOutcome.ERROR, "外部 AI 返回 JSON 解析失败：${t.message ?: t::class.java.simpleName}"))
             null
+        }
+    }
+
+    private fun parseAttendanceDecision(obj: JSONObject): AttendanceDecision {
+        val raw = listOf("attendance", "attend", "needAttend", "need_attend", "needCreate", "need_create")
+            .firstNotNullOfOrNull { key ->
+                if (obj.has(key) && !obj.isNull(key)) obj.opt(key)?.toString()?.trim() else null
+            }
+            ?.lowercase(Locale.ROOT)
+        return when (raw) {
+            "not_required", "notrequired", "no", "false", "无需参会", "不需要参会", "无需参加", "不需要参加" ->
+                AttendanceDecision.NOT_REQUIRED
+            "required", "yes", "true", "需要参会", "需要参加" ->
+                AttendanceDecision.REQUIRED
+            "uncertain", "unknown", "不确定", "无法判断" ->
+                AttendanceDecision.UNCERTAIN
+            else -> {
+                val title = obj.optString("title", "")
+                if (title.startsWith("无需参会：") || title.startsWith("无需参会:")) {
+                    AttendanceDecision.NOT_REQUIRED
+                } else {
+                    AttendanceDecision.UNCERTAIN
+                }
+            }
         }
     }
 

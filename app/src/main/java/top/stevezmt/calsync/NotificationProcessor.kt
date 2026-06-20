@@ -101,12 +101,13 @@ object NotificationProcessor {
 					if (!chosenLocation.isNullOrBlank()) desc += "\n地点: ${chosenLocation}"
 					if (engine == ParseEngine.EXTERNAL_AI) desc += "\n解析来源: 外部 AI"
 
-					val eventId = CalendarHelper.insertEvent(context, eventTitle, desc, parsed.startMillis, parsed.endMillis, chosenLocation)
+					val normalizedEndMillis = CalendarHelper.normalizeEndMillis(context, parsed.startMillis, parsed.endMillis)
+					val eventId = CalendarHelper.insertEvent(context, eventTitle, desc, parsed.startMillis, normalizedEndMillis, chosenLocation)
 					if (eventId != null) {
 						val sourceLabel = if (engine == ParseEngine.EXTERNAL_AI) "外部 AI" else null
 						NotificationUtils.sendEventCreated(context, eventId, parsed.startMillis, eventTitle, chosenLocation, sourceLabel)
 						if (externalAiStatus != null) notifier.onDebugLog(externalAiStatus.message)
-						notifier.onEventCreated(eventId, eventTitle, parsed.startMillis, parsed.endMillis ?: (parsed.startMillis + 60*60*1000L), chosenLocation)
+						notifier.onEventCreated(eventId, eventTitle, parsed.startMillis, normalizedEndMillis, chosenLocation)
 						// also broadcast baseMillis so UI can display what 'now' was when parsing
 						try {
 							val b = android.content.Intent(NotificationUtils.ACTION_EVENT_CREATED)

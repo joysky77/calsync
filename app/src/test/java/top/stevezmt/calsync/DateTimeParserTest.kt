@@ -70,6 +70,87 @@ class DateTimeParserTest {
     }
 
     @Test
+    fun testDeterministicWeekdayNumberUsesNearestFutureWeekday() {
+        val base = Calendar.getInstance().apply {
+            set(2026, Calendar.JUNE, 20, 9, 0, 0) // Saturday
+            set(Calendar.MILLISECOND, 0)
+        }
+        val result = DateTimeParser.parseDeterministicTimeForTest("周4下午2点，召开中心组学习", base.timeInMillis)
+        assertNotNull(result)
+        val cal = Calendar.getInstance().apply { timeInMillis = result!!.startMillis }
+        assertEquals(2026, cal.get(Calendar.YEAR))
+        assertEquals(Calendar.JUNE, cal.get(Calendar.MONTH))
+        assertEquals(25, cal.get(Calendar.DAY_OF_MONTH))
+        assertEquals(Calendar.THURSDAY, cal.get(Calendar.DAY_OF_WEEK))
+        assertEquals(14, cal.get(Calendar.HOUR_OF_DAY))
+    }
+
+    @Test
+    fun testDeterministicWeekdayNumberWithColonTime() {
+        val base = Calendar.getInstance().apply {
+            set(2026, Calendar.JUNE, 20, 9, 0, 0) // Saturday
+            set(Calendar.MILLISECOND, 0)
+        }
+        val result = DateTimeParser.parseDeterministicTimeForTest("周2 14:30召开中心组学习", base.timeInMillis)
+        assertNotNull(result)
+        val cal = Calendar.getInstance().apply { timeInMillis = result!!.startMillis }
+        assertEquals(2026, cal.get(Calendar.YEAR))
+        assertEquals(Calendar.JUNE, cal.get(Calendar.MONTH))
+        assertEquals(23, cal.get(Calendar.DAY_OF_MONTH))
+        assertEquals(Calendar.TUESDAY, cal.get(Calendar.DAY_OF_WEEK))
+        assertEquals(14, cal.get(Calendar.HOUR_OF_DAY))
+        assertEquals(30, cal.get(Calendar.MINUTE))
+    }
+
+    @Test
+    fun testDeterministicWeekdayThreeWithMorningTime() {
+        val base = Calendar.getInstance().apply {
+            set(2026, Calendar.JUNE, 20, 9, 0, 0) // Saturday
+            set(Calendar.MILLISECOND, 0)
+        }
+        val result = DateTimeParser.parseDeterministicTimeForTest("周3上午9点召开中心组学习", base.timeInMillis)
+        assertNotNull(result)
+        val cal = Calendar.getInstance().apply { timeInMillis = result!!.startMillis }
+        assertEquals(2026, cal.get(Calendar.YEAR))
+        assertEquals(Calendar.JUNE, cal.get(Calendar.MONTH))
+        assertEquals(24, cal.get(Calendar.DAY_OF_MONTH))
+        assertEquals(Calendar.WEDNESDAY, cal.get(Calendar.DAY_OF_WEEK))
+        assertEquals(9, cal.get(Calendar.HOUR_OF_DAY))
+    }
+
+    @Test
+    fun testDeterministicNextWeekUsesNextCalendarWeek() {
+        val base = Calendar.getInstance().apply {
+            set(2026, Calendar.JUNE, 22, 9, 0, 0) // Monday
+            set(Calendar.MILLISECOND, 0)
+        }
+        val result = DateTimeParser.parseDeterministicTimeForTest("下周四下午2点，召开中心组学习", base.timeInMillis)
+        assertNotNull(result)
+        val cal = Calendar.getInstance().apply { timeInMillis = result!!.startMillis }
+        assertEquals(2026, cal.get(Calendar.YEAR))
+        assertEquals(Calendar.JULY, cal.get(Calendar.MONTH))
+        assertEquals(2, cal.get(Calendar.DAY_OF_MONTH))
+        assertEquals(Calendar.THURSDAY, cal.get(Calendar.DAY_OF_WEEK))
+        assertEquals(14, cal.get(Calendar.HOUR_OF_DAY))
+    }
+
+    @Test
+    fun testDeterministicWeekdayRangeKeepsEndTime() {
+        val base = Calendar.getInstance().apply {
+            set(2026, Calendar.JUNE, 20, 9, 0, 0) // Saturday
+            set(Calendar.MILLISECOND, 0)
+        }
+        val result = DateTimeParser.parseDeterministicTimeForTest("星期四下午2点到4点，召开中心组学习", base.timeInMillis)
+        assertNotNull(result)
+        val start = Calendar.getInstance().apply { timeInMillis = result!!.startMillis }
+        val end = Calendar.getInstance().apply { timeInMillis = result!!.endMillis!! }
+        assertEquals(25, start.get(Calendar.DAY_OF_MONTH))
+        assertEquals(14, start.get(Calendar.HOUR_OF_DAY))
+        assertEquals(25, end.get(Calendar.DAY_OF_MONTH))
+        assertEquals(16, end.get(Calendar.HOUR_OF_DAY))
+    }
+
+    @Test
     fun testWeekendPhrase() {
         val slots = parseSlots("这个周末活动")
         val cal = Calendar.getInstance().apply { timeInMillis = slots.first().startMillis }

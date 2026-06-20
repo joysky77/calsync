@@ -25,6 +25,7 @@ object SettingsStore {
     private const val KEY_LAST_BACKUP_TS = "last_backup_ts"
     private const val KEY_LAST_BACKUP_NAME = "last_backup_name"
     private const val KEY_REMINDER_MINUTES = "reminder_minutes" // -1 for none, 0 for at time, >0 for minutes before
+    private const val KEY_DEFAULT_EVENT_DURATION_MINUTES = "default_event_duration_minutes"
 
     // Parsing engines (extensible)
     private const val KEY_PARSING_ENGINE = "parsing_engine" // Int id, see ParseEngine
@@ -162,6 +163,21 @@ object SettingsStore {
         prefs.edit { putInt(KEY_REMINDER_MINUTES, minutes) }
     }
 
+    fun getDefaultEventDurationMinutes(context: Context): Int {
+        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        return prefs.getInt(KEY_DEFAULT_EVENT_DURATION_MINUTES, 60).coerceIn(1, 24 * 60)
+    }
+
+    fun getDefaultEventDurationMillis(context: Context): Long {
+        return getDefaultEventDurationMinutes(context) * 60_000L
+    }
+
+    fun setDefaultEventDurationMinutes(context: Context, minutes: Int) {
+        val safeMinutes = minutes.coerceIn(1, 24 * 60)
+        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        prefs.edit { putInt(KEY_DEFAULT_EVENT_DURATION_MINUTES, safeMinutes) }
+    }
+
     fun isGuessBeforeParseEnabled(context: Context): Boolean {
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         return prefs.getBoolean(KEY_GUESS_BEFORE_PARSE, false)
@@ -239,29 +255,47 @@ object SettingsStore {
 
     private fun defaultAiSystemPrompt(): String {
         return """
-你是用户的日程秘书，需要根据输入文本解析日程。
+你是用户的日程秘书，需要根据输入文本解析是否是用户需要参加的日程。
 
-如果输入文本是会议、活动、调研、培训、座谈、汇报、通知等相关内容，请根据文本中的参会对象判断用户是否需要参加。若无法准确判断，默认用户需要参加。
+你的任务：
+1. 判断文本是否包含会议、活动、调研、培训、座谈、汇报、通知等日程事件。
+2. 根据文本中的参加对象判断我是否需要参加。
+3. 提取简短标题、地点和原文时间片段。
+
+用户应在设置中自行补充自己的身份、职务和参会判断规则。未补充时，请按下面的通用规则判断。
+
+参会判断规则：
+需要参加，attendance 返回 "required"：
+- 明确要求用户本人、用户职务、用户所在单位负责人、公司主要负责人、党委书记、党委委员、领导班子成员、分公司副总经理、相关领导等参加，且无法明确排除用户。
+- 没有明确参会对象，或无法准确判断是否与我有关时，默认需要参加，attendance 返回 "uncertain"。
+
+无需参加，attendance 返回 "not_required"：
+- 明确只要求其他地市、其他分公司、其他部门、普通员工、经办人员、联系人、材料报送人员参加，且能确定不包含我的职务。
+- 明确要求其他单位、其他部门或其他岗位的负责人参加，且能确定与用户身份无关。
+- 仅为抄送、知悉、转发、材料收集，且没有要求领导、主要负责人、党委书记、党委委员或本人参会。
 
 如果能准确判断用户需要参加，请正常解析日程。
-如果能准确判断用户无需参加，请仍然解析日程，但在 title 前添加“无需参会：”。
+如果能准确判断用户无需参加，请仍然解析日程，attendance 返回 "not_required"，并在 title 前添加“无需参会：”。
+如果无法准确判断，默认我需要参加，attendance 返回 "uncertain"，不要添加“无需参会：”。
 
 请严格从输入文本中提取一个事件：
 - startMillis：事件开始时间，必须是 Unix 毫秒时间戳。
-- endMillis：事件结束时间，必须是 Unix 毫秒时间戳；如果无法准确判断结束时间，默认为开始时间后 2 小时。
+- endMillis：事件结束时间，必须是 Unix 毫秒时间戳；如果无法准确判断结束时间，必须为 null，不要自动补默认时长。
 - title：会议或事件的简短名称，末尾必须添加“ from AI”。
 - location：地点；无法判断则为 null。
+- timeText：原文中的时间片段，例如“周5上午9点”“后天上午9点到10点”；无法判断则为 null。
+- attendance：只能是 "required"、"not_required"、"uncertain"。
 
 必须特别注意：
-- “明天”“后天”“周一”“本周五”“下周一”等相对日期，必须基于用户消息中给出的当前时间基准 nowLocal/today/weekday/currentEpochMillis 计算。
+- “明天”“后天”“周一”“周2”“本周五”“下周一”等相对日期，必须基于用户消息中给出的当前时间基准 nowLocal/today/weekday/currentEpochMillis 计算。
 - 不要输出解释、Markdown、代码块或多余文字。
 - 输出必须且只能是一个 JSON 对象。
 
 格式严格如下：
-{"startMillis":<epochMillis>,"endMillis":<epochMillis>,"title":<string|null>,"location":<string|null>}
+{"startMillis":<epochMillis|null>,"endMillis":<epochMillis|null>,"title":<string|null>,"location":<string|null>,"timeText":<string|null>,"attendance":<"required"|"not_required"|"uncertain">}
 
 若完全无法解析开始时间，输出：
-{}
+{"startMillis":null,"endMillis":null,"title":null,"location":null,"timeText":null,"attendance":"uncertain"}
 """.trimIndent()
     }
 

@@ -405,6 +405,20 @@
                             android:inputType="numberSigned" />
                     </com.google.android.material.textfield.TextInputLayout>
 
+                    <com.google.android.material.textfield.TextInputLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="12dp"
+                        android:hint="默认日程时长（分钟）"
+                        app:helperText="通知未提供结束时间，或结束时间早于开始时间时使用；默认 60 分钟">
+
+                        <com.google.android.material.textfield.TextInputEditText
+                            android:id="@+id/edit_default_duration_minutes"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:inputType="number" />
+                    </com.google.android.material.textfield.TextInputLayout>
+
                     <com.google.android.material.button.MaterialButton
                         android:id="@+id/btn_request_permission"
                         style="@style/Widget.Material3.Button.OutlinedButton"

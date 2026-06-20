@@ -27,6 +27,7 @@ class SettingsActivity : AppCompatActivity() {
     private lateinit var relativeWordsEdit: EditText
     private lateinit var customRulesEdit: EditText
     private lateinit var reminderMinutesEdit: EditText
+    private lateinit var defaultDurationMinutesEdit: EditText
     private var selectAppsBtn: Button? = null
     private var selectedAppsText: android.widget.TextView? = null
     private var fillRuleTemplateBtn: Button? = null
@@ -89,6 +90,7 @@ class SettingsActivity : AppCompatActivity() {
         relativeWordsEdit = findViewById(R.id.edit_relative_words)
         customRulesEdit = findViewById(R.id.edit_custom_rules)
         reminderMinutesEdit = findViewById(R.id.edit_reminder_minutes)
+        defaultDurationMinutesEdit = findViewById(R.id.edit_default_duration_minutes)
         selectAppsBtn = findViewById(R.id.btn_select_apps)
         selectedAppsText = findViewById(R.id.text_selected_apps)
         fillRuleTemplateBtn = findViewById(R.id.btn_fill_rule_template)
@@ -140,6 +142,7 @@ class SettingsActivity : AppCompatActivity() {
         relativeWordsEdit.setText(SettingsStore.getRelativeDateWords(this).joinToString(","))
         customRulesEdit.setText(SettingsStore.getCustomRules(this).joinToString(","))
         reminderMinutesEdit.setText(SettingsStore.getReminderMinutes(this).toString())
+        defaultDurationMinutesEdit.setText(SettingsStore.getDefaultEventDurationMinutes(this).toString())
         guessBeforeParseSwitch?.isChecked = SettingsStore.isGuessBeforeParseEnabled(this)
         
         aiModelPathEdit?.setText(SettingsStore.getAiGgufModelUri(this) ?: "")
@@ -254,6 +257,7 @@ class SettingsActivity : AppCompatActivity() {
         SettingsStore.setRelativeDateWords(this, relativeWordsEdit.text.toString().split(',').map { it.trim() }.filter { it.isNotEmpty() })
         SettingsStore.setCustomRules(this, customRulesEdit.text.toString().split(',').map { it.trim() }.filter { it.isNotEmpty() })
         SettingsStore.setReminderMinutes(this, reminderMinutesEdit.text.toString().toIntOrNull() ?: 10)
+        SettingsStore.setDefaultEventDurationMinutes(this, defaultDurationMinutesEdit.text.toString().toIntOrNull() ?: 60)
         SettingsStore.setGuessBeforeParseEnabled(this, guessBeforeParseSwitch?.isChecked == true)
         
         val preferOpt = when {

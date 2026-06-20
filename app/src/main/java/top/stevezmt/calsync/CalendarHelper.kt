@@ -20,9 +20,10 @@ object CalendarHelper {
                 return null
             }
 
+            val safeEndMillis = normalizeEndMillis(context, startMillis, endMillis)
             val values = ContentValues().apply {
                 put(CalendarContract.Events.DTSTART, startMillis)
-                put(CalendarContract.Events.DTEND, endMillis ?: (startMillis + 60 * 60 * 1000L))
+                put(CalendarContract.Events.DTEND, safeEndMillis)
                 put(CalendarContract.Events.TITLE, title)
                 put(CalendarContract.Events.DESCRIPTION, description)
                 put(CalendarContract.Events.CALENDAR_ID, calendarId)
@@ -70,6 +71,11 @@ object CalendarHelper {
             try { NotificationUtils.sendError(context, e) } catch (_: Throwable) {}
         }
         return null
+    }
+
+    fun normalizeEndMillis(context: Context, startMillis: Long, endMillis: Long?): Long {
+        val defaultEnd = startMillis + SettingsStore.getDefaultEventDurationMillis(context)
+        return endMillis?.takeIf { it > startMillis } ?: defaultEnd
     }
 
     data class CalendarInfo(val id: Long, val name: String)
